@@ -1,22 +1,128 @@
-#!/usr/bin/env python
-"""Django's command-line utility for administrative tasks."""
+#  here's several helpful packages to load
+
+#import numpy as np # linear algebra
+#import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the read-only "../input/" directory
+
+#import os
+#for dirname, _, filenames in os.walk
+#    for filename in filenames:
+
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from skimage import io
+from skimage.transform import  resize
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
+from os import listdir
+import shutil
 import os
-import sys
 
 
-def main():
-    """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'SakeAid.settings')
-    try:
-        from django.core.management import execute_from_command_line
-    except ImportError as exc:
-        raise ImportError(
-            "Couldn't import Django. Are you sure it's installed and "
-            "available on your PYTHONPATH environment variable? Did you "
-            "forget to activate a virtual environment?"
-        ) from exc
-    execute_from_command_line(sys.argv)
+train_csv = "../content/drive/MyDrive/Untitled folder/dataset/train.csv"
+test_csv = "../content/drive/MyDrive/Untitled folder/dataset/test.csv"
+train_image_path = "../content/drive/MyDrive/Untitled folder/dataset/train"
+test_image_path = "../content/drive/MyDrive/Untitled folder/dataset/test"
+train_df_img_list.head()
 
+fig = plt.figure( figsize = (40,15), dpi = 30)
+sns.countplot( data = train_df_img_list, x = "breed", order = train_df_img_list["breed"].value_counts() .index )
+plt.xticks( rotation = 90, fontsize = 30 )
+plt.yticks( fontsize = 30)
+plt.xlabel ("breed", fontsize = 30)
+plt.ylabel( "Count", fontsize = 30)
+print ( "Number of class =", len( train_df_img_list["breed"].unique())  )
+''' Creating Data generator '''  
+# will generate batches of data with augmentation
+def image_read ( path, img_width = 100,img_height = 100 ):
+    
+    data = io.imread( path)
+    return (resize(data/ 255,(img_width, img_height) ) )
+file_list = os.listdir(train_image_path)
+plt.imshow ( image_read ( path = train_image_path +"/"+file_list[0],
+                        img_width = 100,
+                        img_height = 100)
+           )
+def data_generator( train_file_name , path, img_height = 100, img_width = 100, batch_size = 300, cat_col = "breed", image_col ="image_id", file_format = ".jpg" ):
+    
+    df = shuffle( pd.read_csv(train_file_name, sep =",") )
+    unique_breed  = list ( df[cat_col].unique() )
+    
+    while True:
+        
+        for each_chunk in pd.read_csv(train_file_name, chunksize=batch_size, sep =","):
 
-if __name__ == '__main__':
-    main()
+            data  = np.zeros ( ( each_chunk.shape[0] , img_width, img_height, 3 )   )
+            label = np.zeros ( ( each_chunk.shape [0]  , len(unique_breed) )  ) 
+
+            each_chunk= shuffle ( each_chunk )
+
+            for each_row in range( each_chunk.shape[0] ):
+
+                each_image =  path +"/"+ each_chunk.iloc[each_row][0] + file_format
+
+                each_breed =  each_chunk.iloc[each_row][1]
+
+                each_image_data = image_read (path = each_image, img_width = img_width ,img_height = img_height  )
+
+                data[each_row, :, :, 0 ] =  each_image_data[:,:,0]/255
+
+                data[each_row, :, :, 1 ] =  each_image_data[:,:,1]/255
+
+                data[each_row, :, :, 2 ] =  each_image_data[:,:,2]/255
+
+                label[each_row,unique_breed.index(each_breed) ] =  1
+
+            yield ( data, label )
+            ''' Required Tensorflow library for preocessing '''
+from tensorflow import keras
+from tensorflow.keras.layers import Dense, Conv2D, Flatten, Dropout
+from tensorflow.keras import Sequential
+from tensorflow.keras import preprocessing
+import tensorflow as tf
+img_width = 90
+img_height = 90
+batch_size = 1000
+number_of_channel = 3 # RGB
+number_of_class = train_df_img_list["breed"].unique()
+if ( train_df_img_list.shape[0] % batch_size ) ==0 :
+    
+    steps_per_epoch = int( train_df_img_list.shape[0]/batch_size)
+    
+else:
+    steps_per_epoch = (train_df_img_list.shape[0] //batch_size ) + 1
+    
+np.random.random(30)
+tf.random.set_seed(30)
+
+train_data_with_label = data_generator(train_file_name = train_csv , 
+                            path =train_image_path, 
+                            img_height = img_height, 
+                            img_width = img_width, 
+                            batch_size = batch_size, 
+                            cat_col = "breed", 
+                            image_col ="image_id", 
+                            file_format = ".jpg" )
+cnn_model = Sequential()
+
+cnn_model.add ( Conv2D ( filters = 16, kernel_size = (2,2), strides = (1,1), padding = "valid",activation ="relu", input_shape = ( img_width,img_height, number_of_channel  ) ) )
+cnn_model.add (Conv2D  ( filters = 32, kernel_size = (2,2), strides = (2,2), padding = "valid",activation = "elu" )  )
+cnn_model.add (Conv2D  ( filters = 32, kernel_size = (2,2), strides = (1,1), padding = "valid",activation = "elu" )  )
+cnn_model.add (Dropout(0.2))
+
+cnn_model.add (Conv2D  ( filters = 32, kernel_size = (2,2), strides = (2,2), padding = "valid",activation = "elu" )  )
+cnn_model.add (Dropout(0.2))
+cnn_model.add (Conv2D  ( filters = 32, kernel_size = (2,2), strides = (2,2), padding = "valid",activation = "elu" )  )
+#cnn_model.add (Conv2D  ( filters = 64, kernel_size = (2,2), strides = (1,1), padding = "valid",activation = "elu" )  )
+cnn_model.add ( Flatten() )
+cnn_model.add ( Dense (units = 128, activation = "relu",use_bias = True  ) )
+cnn_model.add (Dropout(0.2))
+cnn_model.add ( Dense (units = 64, activation = "relu",use_bias = True  ) )
+cnn_model.add (Dropout(0.1))
+cnn_model.add ( Dense (units = 35, activation = "softmax",use_bias = False  ) )
+cnn_model.summary()
+cnn_model.fit_generator(  train_data_with_label, steps_per_epoch=steps_per_epoch,epochs = 10, shuffle=  True ) 
